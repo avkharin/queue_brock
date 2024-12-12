@@ -25,5 +25,37 @@ func (q *Queue) Enqueue(msg string) {
 }
 
 func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
+	if len(q.messages) > 0 {
+		msg := q.messages[0]
+		q.messages = q.messages[1:]
+		return msg, true
+	}
+
+	if timeout > 0 {
+		waiter := make(chan string, 1)
+		q.waiters = append(q.waiters, waiter)
+		q.mu.Unlock()
+
+		select {
+		case msg <- waiter:
+			return msg, true
+		case <-time.After(timeout):
+			// Remove the chanal from list
+			q.mu.Lock()
+			for i, w := range q.waiters {
+				if w == waiter {
+					q.waiters = append(q.waiters[:i], q.waiters[i+1:]...)
+					break
+				}
+			}
+			q.mu.Unlock()
+			return "", false
+		}
+
+	}
+
+	return "", false
 }

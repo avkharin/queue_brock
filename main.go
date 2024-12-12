@@ -40,7 +40,7 @@ func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
 		q.mu.Unlock()
 
 		select {
-		case msg <- waiter:
+		case msg := <-waiter:
 			return msg, true
 		case <-time.After(timeout):
 			// Remove the chanal from list

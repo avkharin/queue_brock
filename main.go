@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -44,7 +47,7 @@ func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
 		case msg := <-waiter:
 			return msg, true
 		case <-time.After(timeout):
-			// Remove the chanal from list
+			// Remove the chanel from list
 			q.mu.Lock()
 			for i, w := range q.waiters {
 				if w == waiter {
@@ -61,24 +64,24 @@ func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
 	return "", false
 }
 
-type Brocker struct {
+type Broker struct {
 	mp map[string]*Queue
 	mu sync.Mutex
 }
 
-func NewBrocker() *Brocker {
-	return &Brocker{
+func NewBroker() *Broker {
+	return &Broker{
 		mp: make(map[string]*Queue),
 	}
 }
 
-func (this *Brocker) getQueue(name string) *Queue {
-	this.mu.Lock()
-	defer this.mu.Unlock()
-	if _, exist := this.mp[name]; !exist {
-		this.mp[name] = &Queue{}
+func (broker *Broker) getQueue(name string) *Queue {
+	broker.mu.Lock()
+	defer broker.mu.Unlock()
+	if _, exist := broker.mp[name]; !exist {
+		broker.mp[name] = &Queue{}
 	}
-	return this.mp[name]
+	return broker.mp[name]
 }
 
 func handlePut(w http.ResponseWriter, r *http.Request) {
@@ -88,8 +91,57 @@ func handlePut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
-	brocker.getQueue(queueName).Enqueue(message)
+	broker.getQueue(queueName).Enqueue(message)
 	w.WriteHeader(http.StatusOK)
 }
 
-var brocker = NewBrocker()
+func handleGet(w http.ResponseWriter, r *http.Request) {
+	queueName := r.URL.Path[1:]
+	timeoutStr := r.URL.Query().Get("timeout")
+	var timeout time.Duration
+
+	if timeoutStr != "" {
+		seconds, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			http.Error(w, "Invalid timeout", http.StatusBadRequest)
+			return
+		}
+		timeout = time.Duration(seconds) * time.Second
+	}
+
+	msg, ok := broker.getQueue(queueName).Dequeue(timeout)
+	if !ok {
+		http.Error(w, "", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprint(w, msg)
+}
+
+var broker = NewBroker()
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <port>")
+		return
+	}
+	port := os.Args[1]
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			handlePut(w, r)
+		case http.MethodGet:
+			handleGet(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	fmt.Printf("Server is running on port %s\n", port)
+	err := http.ListenAndServe(":"+port, nil)
+	if err != nil {
+		fmt.Println("Error starting server: ", err)
+	}
+}

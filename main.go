@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"sync"
 	"time"
 )
@@ -59,3 +60,36 @@ func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
 
 	return "", false
 }
+
+type Brocker struct {
+	mp map[string]*Queue
+	mu sync.Mutex
+}
+
+func NewBrocker() *Brocker {
+	return &Brocker{
+		mp: make(map[string]*Queue),
+	}
+}
+
+func (this *Brocker) getQueue(name string) *Queue {
+	this.mu.Lock()
+	defer this.mu.Unlock()
+	if _, exist := this.mp[name]; !exist {
+		this.mp[name] = &Queue{}
+	}
+	return this.mp[name]
+}
+
+func handlePut(w http.ResponseWriter, r *http.Request) {
+	queueName := r.URL.Path[1:]
+	message := r.URL.Query().Get("v")
+	if message == "" {
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	brocker.getQueue(queueName).Enqueue(message)
+	w.WriteHeader(http.StatusOK)
+}
+
+var brocker = NewBrocker()

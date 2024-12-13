@@ -29,17 +29,21 @@ func (q *Queue) Enqueue(msg string) {
 }
 
 func (q *Queue) Dequeue(timeout time.Duration) (string, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	//	q.mu.Lock()
+	//	defer q.mu.Unlock()
 
 	if len(q.messages) > 0 {
+		q.mu.Lock()
 		msg := q.messages[0]
 		q.messages = q.messages[1:]
+		q.mu.Unlock()
+
 		return msg, true
 	}
 
 	if timeout > 0 {
 		waiter := make(chan string, 1)
+		q.mu.Lock()
 		q.waiters = append(q.waiters, waiter)
 		q.mu.Unlock()
 
